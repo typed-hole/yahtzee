@@ -2,6 +2,7 @@
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 
 module Yahtzee.Server
   ( runYahtzeeServer
@@ -24,10 +25,12 @@ import System.Exit (exitFailure)
 import Control.Exception (bracket, bracketOnError, Exception (displayException), SomeException)
 import Network.Socket.ByteString.Lazy ( recv, sendAll, getContents, send )
 import Control.Monad (forever, unless)
-import qualified Data.ByteString.Lazy as BS
+import qualified Data.ByteString.Lazy.Char8 as BS
 import Control.Concurrent (forkFinally, ThreadId)
 import Data.Void (absurd)
 import Data.ByteString.Lazy (ByteString)
+import Yahtzee.Protocol (ClientMessage (HelloThere, SoUncivilized), ServerMessage (YouFool, GeneralKenobi))
+import Text.Read (readMaybe)
 
 runYahtzeeServer :: IO ()
 runYahtzeeServer = withSocketsDo $ do
@@ -61,10 +64,17 @@ serveClient (client, clientAddr) = do
   where
     messageHandler :: IO ()
     messageHandler = do
-      "HELLO_THERE" <- recv client (2^10)
-      sendAll client "GENERAL_KENOBI"
-      "YOUR_MOVE" <- recv client (2^10)
-      sendAll client "YOU_FOOL"
+      msg <- recv client (2^10)
+      case readMaybe @ClientMessage . BS.unpack $ msg of
+        Nothing -> do
+          respond YouFool
+        Just HelloThere -> do
+          respond GeneralKenobi
+          messageHandler
+        Just SoUncivilized -> respond YouFool
+
+    respond :: ServerMessage -> IO ()
+    respond = sendAll client . BS.pack . show
 
     errorHandler :: Either SomeException () -> IO ()
     errorHandler = \case

@@ -61,9 +61,9 @@ serveClient (client, clientAddr) = do
   where
     messageHandler :: IO ()
     messageHandler = do
-      "HELLO_THERE" <- recv client 11
+      "HELLO_THERE" <- recv client (2^10)
       sendAll client "GENERAL_KENOBI"
-      "YOUR_MOVE" <- recv client 9
+      "YOUR_MOVE" <- recv client (2^10)
       sendAll client "YOU_FOOL"
 
     errorHandler :: Either SomeException () -> IO ()

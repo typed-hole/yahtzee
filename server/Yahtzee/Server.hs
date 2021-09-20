@@ -1,5 +1,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Yahtzee.Server
   ( runYahtzeeServer
@@ -20,11 +22,12 @@ import Network.Socket
       Socket, SockAddr )
 import System.Exit (exitFailure)
 import Control.Exception (bracket, bracketOnError, Exception (displayException), SomeException)
-import Network.Socket.ByteString.Lazy ( recv, sendAll, getContents )
+import Network.Socket.ByteString.Lazy ( recv, sendAll, getContents, send )
 import Control.Monad (forever, unless)
 import qualified Data.ByteString.Lazy as BS
 import Control.Concurrent (forkFinally, ThreadId)
 import Data.Void (absurd)
+import Data.ByteString.Lazy (ByteString)
 
 runYahtzeeServer :: IO ()
 runYahtzeeServer = withSocketsDo $ do
@@ -58,10 +61,10 @@ serveClient (client, clientAddr) = do
   where
     messageHandler :: IO ()
     messageHandler = do
-      bytes <- recv client 1_024
-      unless (BS.null bytes) $ do
-        sendAll client bytes
-        messageHandler
+      "HELLO_THERE" <- recv client 11
+      sendAll client "GENERAL_KENOBI"
+      "YOUR_MOVE" <- recv client 9
+      sendAll client "YOU_FOOL"
 
     errorHandler :: Either SomeException () -> IO ()
     errorHandler = \case

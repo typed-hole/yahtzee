@@ -23,14 +23,13 @@ import Network.Socket
       Socket, SockAddr )
 import System.Exit (exitFailure)
 import Control.Exception (bracket, bracketOnError, Exception (displayException), SomeException)
-import Network.Socket.ByteString.Lazy ( recv, sendAll, getContents, send )
-import Control.Monad (forever, unless)
+import Network.Socket.ByteString.Lazy ( recv, sendAll )
+import Control.Monad (forever)
 import qualified Data.ByteString.Lazy.Char8 as BS
 import Control.Concurrent (forkFinally, ThreadId)
-import Data.Void (absurd)
-import Data.ByteString.Lazy (ByteString)
-import Yahtzee.Protocol (ClientMessage (HelloThere, SoUncivilized), ServerMessage (YouFool, GeneralKenobi))
+import Yahtzee.Protocol (ClientMessage (HelloThere, SoUncivilized, YourMove), ServerMessage (YouFool, GeneralKenobi, AttackKenobi))
 import Text.Read (readMaybe)
+import System.Random.Stateful (Uniform(uniformM), newIOGenM, getStdGen, IOGenM, StdGen)
 
 runYahtzeeServer :: IO ()
 runYahtzeeServer = withSocketsDo $ do
@@ -60,18 +59,24 @@ serveClient (client, clientAddr) = do
     [ "Serving new client: "
     , show clientAddr
     ]
-  forkFinally messageHandler errorHandler
+  gen <- getStdGen >>= newIOGenM
+  forkFinally (messageHandler gen) errorHandler
   where
-    messageHandler :: IO ()
-    messageHandler = do
-      msg <- recv client (2^10)
+    messageHandler :: IOGenM StdGen -> IO ()
+    messageHandler gen = do
+      msg <- recv client 1024
       case readMaybe @ClientMessage . BS.unpack $ msg of
         Nothing -> do
           respond YouFool
-        Just HelloThere -> do
-          respond GeneralKenobi
-          messageHandler
-        Just SoUncivilized -> respond YouFool
+        Just clientMsg -> case clientMsg of
+          HelloThere -> do
+            respond GeneralKenobi
+            messageHandler gen
+          SoUncivilized -> respond YouFool
+          YourMove -> do
+            dice <- uniformM gen
+            respond $ AttackKenobi dice
+            messageHandler gen
 
     respond :: ServerMessage -> IO ()
     respond = sendAll client . BS.pack . show

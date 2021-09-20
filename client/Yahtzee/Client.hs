@@ -6,13 +6,12 @@ module Yahtzee.Client
   ( runYahtzeeClient
   ) where
 
-import Control.Exception (bracket, finally, throwIO)
+import Control.Exception (bracket, finally)
 import Network.Socket (openSocket, close, getAddrInfo, defaultHints, connect, SockAddr (SockAddrInet), tupleToHostAddress, gracefulClose, Socket)
 import System.Exit (exitFailure)
 import Network.Socket.ByteString (sendAll, recv)
-import Control.Monad (forever)
 import qualified Data.ByteString.Char8 as BS
-import Yahtzee.Protocol (ServerMessage (GeneralKenobi, YouFool))
+import Yahtzee.Protocol (ServerMessage (GeneralKenobi, YouFool, AttackKenobi))
 import Text.Read (readMaybe)
 
 runYahtzeeClient :: IO ()
@@ -36,9 +35,11 @@ talkToServer server = go
     go = do
       msg <- BS.getLine
       sendAll server msg
-      response <- recv server (2^10)
+      response <- recv server 1024
       BS.putStrLn response
       case readMaybe @ServerMessage . BS.unpack $ response of
         Nothing -> error "Bad server message"
-        Just GeneralKenobi -> go
-        Just YouFool -> pure ()
+        Just serverMsg -> case serverMsg of
+          GeneralKenobi -> go
+          YouFool -> pure ()
+          AttackKenobi _dice -> go

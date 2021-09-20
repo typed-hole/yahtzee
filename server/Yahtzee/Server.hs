@@ -3,6 +3,7 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE NamedFieldPuns #-}
 
 module Yahtzee.Server
   ( runYahtzeeServer
@@ -22,14 +23,16 @@ import Network.Socket
       AddrInfo(addrAddress),
       Socket, SockAddr )
 import System.Exit (exitFailure)
-import Control.Exception (bracket, bracketOnError, Exception (displayException), SomeException)
+import Control.Exception.Safe (bracket, bracketOnError, Exception (displayException), SomeException)
 import Network.Socket.ByteString.Lazy ( recv, sendAll )
-import Control.Monad (forever)
+import Control.Monad (forever, (>=>))
 import qualified Data.ByteString.Lazy.Char8 as BS
-import Control.Concurrent (forkFinally, ThreadId)
 import Yahtzee.Protocol (ClientMessage (HelloThere, SoUncivilized, YourMove), ServerMessage (YouFool, GeneralKenobi, AttackKenobi))
 import Text.Read (readMaybe)
 import System.Random.Stateful (Uniform(uniformM), newIOGenM, getStdGen, IOGenM, StdGen)
+import Control.Monad.Trans.Reader (ReaderT(runReaderT), asks)
+import Control.Monad.IO.Class (MonadIO(liftIO))
+import UnliftIO.Async ( waitCatch, withAsync )
 
 runYahtzeeServer :: IO ()
 runYahtzeeServer = withSocketsDo $ do
@@ -41,48 +44,55 @@ runYahtzeeServer = withSocketsDo $ do
   bracket (openSocket addrInfo) exit $ \socket -> do
     bind socket (addrAddress addrInfo)
     listen socket 1_024
-    waitForConnections socket
+    randomGen <- getStdGen >>= newIOGenM
+    runReaderT (waitForConnections socket) ServerEnv
+      { randomGen
+      }
   where
     exit socket = do
       putStrLn "Goodnight"
       close socket
 
-waitForConnections :: Socket -> IO void
+waitForConnections :: Socket -> ReaderT ServerEnv IO void
 waitForConnections socket =
     forever
-    . bracketOnError (accept socket) (close . fst)
+    . bracketOnError (liftIO $ accept socket) (liftIO . close . fst)
     $ serveClient
 
-serveClient :: (Socket, SockAddr) -> IO ThreadId
+newtype ServerEnv = ServerEnv
+  { randomGen :: IOGenM StdGen
+  }
+
+serveClient :: (Socket, SockAddr) -> ReaderT ServerEnv IO ()
 serveClient (client, clientAddr) = do
-  putStrLn . mconcat $
+  liftIO . putStrLn . mconcat $
     [ "Serving new client: "
     , show clientAddr
     ]
-  gen <- getStdGen >>= newIOGenM
-  forkFinally (messageHandler gen) errorHandler
+  withAsync messageHandler (waitCatch >=> errorHandler)
   where
-    messageHandler :: IOGenM StdGen -> IO ()
-    messageHandler gen = do
-      msg <- recv client 1024
+    messageHandler :: ReaderT ServerEnv IO ()
+    messageHandler = do
+      msg <- liftIO $ recv client 1024
       case readMaybe @ClientMessage . BS.unpack $ msg of
         Nothing -> do
           respond YouFool
         Just clientMsg -> case clientMsg of
           HelloThere -> do
             respond GeneralKenobi
-            messageHandler gen
+            messageHandler
           SoUncivilized -> respond YouFool
           YourMove -> do
-            dice <- uniformM gen
+            gen <- asks randomGen
+            dice <- liftIO $ uniformM gen
             respond $ AttackKenobi dice
-            messageHandler gen
+            messageHandler
 
-    respond :: ServerMessage -> IO ()
-    respond = sendAll client . BS.pack . show
+    respond :: ServerMessage -> ReaderT ServerEnv IO ()
+    respond = liftIO . sendAll client . BS.pack . show
 
-    errorHandler :: Either SomeException () -> IO ()
-    errorHandler = \case
+    errorHandler :: Either SomeException () -> ReaderT ServerEnv IO ()
+    errorHandler = liftIO . \case
       Left err -> do
         putStrLn . mconcat $
           ["Failed to serve client: "

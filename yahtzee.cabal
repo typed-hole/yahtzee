@@ -47,6 +47,9 @@ executable yahtzee-server
       , bytestring
       , network
       , random
+      , safe-exceptions
+      , transformers
+      , unliftio
 
     hs-source-dirs:   server
     default-language: Haskell2010
@@ -66,6 +69,7 @@ executable yahtzee-client
       , base ^>=4.15.0.0
       , bytestring
       , network
+      , safe-exceptions
 
     hs-source-dirs:   client
     default-language: Haskell2010

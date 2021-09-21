@@ -45,6 +45,7 @@ executable yahtzee-server
 
       , base ^>=4.15.0.0
       , bytestring
+      , mtl
       , network
       , random
       , safe-exceptions

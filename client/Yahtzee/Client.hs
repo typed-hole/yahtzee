@@ -11,8 +11,9 @@ import Network.Socket (openSocket, close, getAddrInfo, defaultHints, connect, So
 import System.Exit (exitFailure)
 import Network.Socket.ByteString (sendAll, recv)
 import qualified Data.ByteString.Char8 as BS
+import qualified Data.ByteString.Lazy as BS (fromStrict)
 import Yahtzee.Protocol (ServerMessage (GeneralKenobi, YouFool, AttackKenobi))
-import Text.Read (readMaybe)
+import qualified Data.Aeson as JSON
 
 runYahtzeeClient :: IO ()
 runYahtzeeClient = do
@@ -37,7 +38,7 @@ talkToServer server = go
       sendAll server msg
       response <- recv server 1024
       BS.putStrLn response
-      case readMaybe @ServerMessage . BS.unpack $ response of
+      case JSON.decode @ServerMessage . BS.fromStrict $ response of
         Nothing -> error "Bad server message"
         Just serverMsg -> case serverMsg of
           GeneralKenobi -> go

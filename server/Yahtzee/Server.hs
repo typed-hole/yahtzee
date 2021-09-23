@@ -29,13 +29,13 @@ import Network.Socket.ByteString.Lazy ( recv, sendAll )
 import Control.Monad (forever, (>=>))
 import qualified Data.ByteString.Lazy.Char8 as BS
 import Yahtzee.Protocol (ClientMessage (HelloThere, SoUncivilized, YourMove, You'reNotHelpingHere), ServerMessage (YouFool, GeneralKenobi, AttackKenobi), RerollDecision (..), KeepOrReroll (Keep, Reroll), Die)
-import Text.Read (readMaybe)
 import System.Random.Stateful (Uniform(uniformM), newIOGenM, getStdGen, IOGenM, StdGen)
 import Control.Monad.Trans.Reader (ReaderT(..))
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import UnliftIO.Async ( waitCatch, withAsync )
 import Control.Monad.Reader.Class (MonadReader, asks)
 import UnliftIO (MonadUnliftIO)
+import qualified Data.Aeson as JSON
 
 runYahtzeeServer :: IO ()
 runYahtzeeServer = withSocketsDo $ do
@@ -91,7 +91,7 @@ serveClient (client, clientAddr) = do
     messageHandler = do
       msg <- liftIO $ recv client 1024
       liftIO $ BS.putStrLn msg
-      case readMaybe @ClientMessage . BS.unpack $ msg of
+      case JSON.decode @ClientMessage $ msg of
         Nothing -> do
           respond YouFool
         Just clientMsg -> case clientMsg of
@@ -120,7 +120,7 @@ serveClient (client, clientAddr) = do
       liftIO $ uniformM gen
 
     respond :: ServerMessage -> Server ()
-    respond = liftIO . sendAll client . BS.pack . show
+    respond = liftIO . sendAll client . JSON.encode
 
     errorHandler :: Either SomeException () -> Server ()
     errorHandler = liftIO . \case

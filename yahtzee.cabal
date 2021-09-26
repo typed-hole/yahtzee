@@ -47,6 +47,7 @@ executable yahtzee-server
       , aeson
       , base ^>=4.15.0.0
       , bytestring
+      , containers
       , mtl
       , network
       , random

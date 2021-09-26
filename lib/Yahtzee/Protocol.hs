@@ -1,5 +1,6 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE TemplateHaskell #-}
 module Yahtzee.Protocol
   ( ClientMessage (..)
   , ServerMessage (..)
@@ -10,6 +11,7 @@ module Yahtzee.Protocol
   , KeepOrReroll (..)
   ) where
 
+import Data.Aeson.TH (defaultOptions, deriveJSON )
 import System.Random.Stateful (Uniform(uniformM), UniformRange (uniformRM))
 import Data.Bool (bool)
 
@@ -21,6 +23,7 @@ data Die
   | Five
   | Six
   deriving stock (Eq, Show, Read)
+$(deriveJSON defaultOptions ''Die)
 
 instance Uniform Die where
   uniformM g = do
@@ -40,12 +43,14 @@ data KeepOrReroll
   = Keep
   | Reroll
   deriving stock (Eq, Show, Read)
+$(deriveJSON defaultOptions ''KeepOrReroll)
 
 data RerollDecision = RerollDecision
   { die :: Die
   , keepOrReroll :: KeepOrReroll
   }
   deriving stock (Eq, Show, Read)
+$(deriveJSON defaultOptions ''RerollDecision)
 
 type RerollDecisions = (RerollDecision, RerollDecision, RerollDecision, RerollDecision, RerollDecision)
 type Dice = (Die, Die, Die, Die, Die)
@@ -59,10 +64,11 @@ data ClientMessage
   | You'reNotHelpingHere RerollDecisions
   | SoUncivilized
   deriving stock (Eq, Show, Read)
+$(deriveJSON defaultOptions ''ClientMessage)
 
--- >>> You'reNotHelpingHere (RerollDecision One Keep) (RerollDecision Two Reroll) (RerollDecision Three Keep) (RerollDecision Four Reroll) (RerollDecision Five Keep)
 data ServerMessage
   = GeneralKenobi
   | AttackKenobi Dice
   | YouFool
   deriving stock (Eq, Show, Read)
+$(deriveJSON defaultOptions ''ServerMessage)

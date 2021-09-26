@@ -25,6 +25,7 @@ library
     exposed-modules:
       Yahtzee.Protocol
     build-depends:
+      , aeson
       , base ^>= 4.15.0.0
       , random == 1.2.0
     hs-source-dirs:
@@ -43,8 +44,10 @@ executable yahtzee-server
     build-depends:
       , yahtzee
 
+      , aeson
       , base ^>=4.15.0.0
       , bytestring
+      , containers
       , mtl
       , network
       , random
@@ -67,6 +70,7 @@ executable yahtzee-client
     build-depends:
       , yahtzee
 
+      , aeson
       , base ^>=4.15.0.0
       , bytestring
       , network

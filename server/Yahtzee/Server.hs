@@ -29,13 +29,16 @@ import Network.Socket.ByteString.Lazy ( recv, sendAll )
 import Control.Monad (forever, (>=>))
 import qualified Data.ByteString.Lazy.Char8 as BS
 import Yahtzee.Protocol (ClientMessage (HelloThere, SoUncivilized, YourMove, You'reNotHelpingHere), ServerMessage (YouFool, GeneralKenobi, AttackKenobi), RerollDecision (..), KeepOrReroll (Keep, Reroll), Die)
-import Text.Read (readMaybe)
 import System.Random.Stateful (Uniform(uniformM), newIOGenM, getStdGen, IOGenM, StdGen)
 import Control.Monad.Trans.Reader (ReaderT(..))
 import Control.Monad.IO.Class (MonadIO(liftIO))
 import UnliftIO.Async ( waitCatch, withAsync )
 import Control.Monad.Reader.Class (MonadReader, asks)
-import UnliftIO (MonadUnliftIO)
+import UnliftIO (MonadUnliftIO, IORef, newIORef, modifyIORef', readIORef)
+import qualified Data.Aeson as JSON
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
+import Control.Category ((>>>))
 
 runYahtzeeServer :: IO ()
 runYahtzeeServer = withSocketsDo $ do
@@ -44,12 +47,14 @@ runYahtzeeServer = withSocketsDo $ do
       putStrLn "Failed to resolve addrInfo"
       exitFailure
     addr:_whatever -> pure addr
+  sessions <- newIORef Map.empty
   bracket (openSocket addrInfo) exit $ \socket -> do
     bind socket (addrAddress addrInfo)
     listen socket 1_024
     randomGen <- getStdGen >>= newIOGenM
     runServer (waitForConnections socket) ServerEnv
       { randomGen
+      , sessions
       }
   where
     exit socket = do
@@ -75,9 +80,29 @@ waitForConnections socket =
     . bracketOnError (liftIO $ accept socket) (liftIO . close . fst)
     $ serveClient
 
-newtype ServerEnv = ServerEnv
+data Session = Session
+
+data ServerEnv = ServerEnv
   { randomGen :: IOGenM StdGen
+  , sessions :: IORef (Map SockAddr Session)
   }
+
+initSession :: SockAddr -> Server ()
+initSession clientAddr = do
+  sessionMap <- asks sessions
+  modifyIORef' sessionMap $ Map.insert clientAddr Session
+
+destroySession :: SockAddr -> Server ()
+destroySession clientAddr = do
+  sessionMap <- asks sessions
+  modifyIORef' sessionMap $ Map.delete clientAddr
+
+assertSession :: SockAddr -> Server ()
+assertSession clientAddr = do
+  sessionMap <- asks sessions >>= readIORef
+  case Map.lookup clientAddr sessionMap of
+    Just Session -> pure ()
+    Nothing -> error "No session for client"
 
 serveClient :: (Socket, SockAddr) -> Server ()
 serveClient (client, clientAddr) = do
@@ -91,15 +116,19 @@ serveClient (client, clientAddr) = do
     messageHandler = do
       msg <- liftIO $ recv client 1024
       liftIO $ BS.putStrLn msg
-      case readMaybe @ClientMessage . BS.unpack $ msg of
+      case JSON.decode @ClientMessage $ msg of
         Nothing -> do
           respond YouFool
         Just clientMsg -> case clientMsg of
           HelloThere -> do
+            initSession clientAddr
             respond GeneralKenobi
             messageHandler
-          SoUncivilized -> respond YouFool
+          SoUncivilized -> do
+            assertSession clientAddr
+            respond YouFool
           You'reNotHelpingHere (fst, snd, trd, frt, fft) -> do
+            assertSession clientAddr
             fst' <- rerollMaybe (keepOrReroll fst) (die fst)
             snd' <- rerollMaybe (keepOrReroll snd) (die snd)
             trd' <- rerollMaybe (keepOrReroll trd) (die trd)
@@ -108,6 +137,7 @@ serveClient (client, clientAddr) = do
             respond $ AttackKenobi (fst', snd', trd', frt', fft')
             messageHandler
           YourMove -> do
+            assertSession clientAddr
             gen <- asks randomGen
             dice <- liftIO $ uniformM gen
             respond $ AttackKenobi dice
@@ -120,19 +150,20 @@ serveClient (client, clientAddr) = do
       liftIO $ uniformM gen
 
     respond :: ServerMessage -> Server ()
-    respond = liftIO . sendAll client . BS.pack . show
+    respond = liftIO . sendAll client . JSON.encode
 
     errorHandler :: Either SomeException () -> Server ()
-    errorHandler = liftIO . \case
+    errorHandler = \case
       Left err -> do
-        putStrLn . mconcat $
+        liftIO $ putStrLn . mconcat $
           ["Failed to serve client: "
           , displayException err
           ]
-        gracefulClose client 1_000
+        destroySession clientAddr
+        liftIO $ gracefulClose client 1_000
       Right () -> do
-        putStrLn . mconcat $
+        liftIO . putStrLn . mconcat $
           [ "Successfully served client: "
           , show clientAddr
           ]
-        gracefulClose client 1_000
+        liftIO $ gracefulClose client 1_000

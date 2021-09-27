@@ -48,6 +48,7 @@ executable yahtzee-server
       , base ^>=4.15.0.0
       , bytestring
       , containers
+      , lens
       , mtl
       , network
       , random

@@ -38,7 +38,9 @@ import UnliftIO (MonadUnliftIO, IORef, newIORef, modifyIORef', readIORef)
 import qualified Data.Aeson as JSON
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Control.Category ((>>>))
+import Control.Lens.Traversal (traverseOf)
+import Control.Lens.Combinators (Each(each))
+import Data.Function ((&))
 
 runYahtzeeServer :: IO ()
 runYahtzeeServer = withSocketsDo $ do
@@ -127,14 +129,10 @@ serveClient (client, clientAddr) = do
           SoUncivilized -> do
             assertSession clientAddr
             respond YouFool
-          You'reNotHelpingHere (fst, snd, trd, frt, fft) -> do
+          You'reNotHelpingHere decisions -> do
             assertSession clientAddr
-            fst' <- rerollMaybe (keepOrReroll fst) (die fst)
-            snd' <- rerollMaybe (keepOrReroll snd) (die snd)
-            trd' <- rerollMaybe (keepOrReroll trd) (die trd)
-            frt' <- rerollMaybe (keepOrReroll frt) (die frt)
-            fft' <- rerollMaybe (keepOrReroll fft) (die fft)
-            respond $ AttackKenobi (fst', snd', trd', frt', fft')
+            decisions' <- decisions & traverseOf each rerollMaybe
+            respond $ AttackKenobi decisions'
             messageHandler
           YourMove -> do
             assertSession clientAddr
@@ -143,11 +141,12 @@ serveClient (client, clientAddr) = do
             respond $ AttackKenobi dice
             messageHandler
 
-    rerollMaybe :: KeepOrReroll -> Die -> Server Die
-    rerollMaybe Keep = pure
-    rerollMaybe Reroll = const $ do
-      gen <- asks randomGen
-      liftIO $ uniformM gen
+    rerollMaybe :: RerollDecision -> Server Die
+    rerollMaybe (RerollDecision {keepOrReroll, die}) = case keepOrReroll of
+      Keep -> pure die
+      Reroll -> do
+        gen <- asks randomGen
+        liftIO $ uniformM gen
 
     respond :: ServerMessage -> Server ()
     respond = liftIO . sendAll client . JSON.encode
